@@ -60,9 +60,10 @@ select_storage() {
             active && /^[[:space:]]+content[[:space:]]/ { for (i=2;i<=NF;i++) { n=split($i,a,","); for (j=1;j<=n;j++) if (a[j]==wanted) found=1 } }
             END { exit !found }
         ' /etc/pve/storage.cfg; then
-            free="$(awk -v b="$avail" 'BEGIN { printf "%.1f GiB free", b/1073741824 }')"
+            # pvesm status reports Total/Used/Available in KiB (1024-byte units).
+            free="$(awk -v kib="$avail" 'BEGIN { gib=kib/1048576; if (gib >= 1024) printf "%.2f TiB free", gib/1024; else printf "%.1f GiB free", gib }')"
             ids+=("$name")
-            labels+=("$name - $type - $free")
+            labels+=("$type | $free")
         fi
     done < <(pvesm status | tail -n +2)
     ((${#ids[@]} > 0)) || die "No active Proxmox storage supports $wanted_content."
