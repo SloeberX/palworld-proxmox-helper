@@ -46,20 +46,19 @@ settings_menu() {
     done
 }
 self_update() {
-    [[ -f "$repo_file" ]] || { local repo; repo="$(ask 'GitHub repository' 'Enter owner/repository for the public GitHub repo' '')" || return; [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { msg 'Invalid repository. Use owner/repository.'; return; }; printf '%s\n' "$repo" > "$repo_file"; }
-    local repo tmp base
-    repo="$(cat "$repo_file")"
-    tmp="$(mktemp -d)"
-    base="https://raw.githubusercontent.com/$repo/main/guest"
-    curl -fLsS "$base/palworld-manager.sh" -o "$tmp/palworld-manager.sh" || { rm -rf "$tmp"; msg "Could not download the manager from $repo/main. Check the repository and branch."; return; }
-    install -m 0755 "$tmp/palworld-manager.sh" /usr/local/bin/palworld-manager
-    rm -rf "$tmp"
-    msg 'Manager scripts updated from GitHub main. Reopen the menu to use the new version.'
+    local was_active=0
+    systemctl is-active --quiet palworld.service && was_active=1 || true
+    if /usr/local/bin/palworld-helper-update; then
+        if [[ "$was_active" == 1 ]]; then systemctl restart palworld.service; fi
+        msg 'Helper scripts and web manager updated from GitHub.'
+    else
+        msg 'Helper update failed. Check the GitHub repository and network, then see journalctl for details.'
+    fi
 }
 
 [[ $EUID -eq 0 ]] || { echo 'Run this manager through pct enter as root.' >&2; exit 1; }
 while true; do
-    action="$(choose 'Palworld management console' status 'Server status and recent log' start 'Start server' stop 'Stop server' restart 'Restart server' update 'Update game now' settings 'Server settings' ip 'Show current public IP' selfupdate 'Update manager from GitHub' exit 'Exit')" || exit 0
+    action="$(choose 'Palworld management console' status 'Server status and recent log' start 'Start server' stop 'Stop server' restart 'Restart server' update 'Update game and helper from GitHub' settings 'Server settings' ip 'Show current public IP' selfupdate 'Update helper scripts only' exit 'Exit')" || exit 0
     case "$action" in
         status) systemctl --no-pager --full status palworld.service || true; journalctl -u palworld.service -n 35 --no-pager || true; read -r -p 'Press Enter to continue...' _ || true;;
         start) systemctl start palworld.service; msg 'Palworld started.';;
