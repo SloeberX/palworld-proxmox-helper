@@ -149,6 +149,7 @@ ui_msg "Ready to create Debian 13 LXC $CTID on $NODE. It will use $CORES cores, 
 ui_status "CREATING LXC\n\nContainer: $CTID\nStorage: $ROOT_STORAGE\nNetwork: $IP_CIDR"
 pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
     --hostname "$HOSTNAME" --ostype debian --unprivileged 1 \
+    --features nesting=1 \
     --cores "$CORES" --memory "$MEMORY" --swap "$SWAP" \
     --rootfs "$ROOT_STORAGE:$DISK" --net0 "$NET_SPEC" --onboot 1 --start 1
 
@@ -168,7 +169,16 @@ while true; do
     if [[ "$INSTALL_MODE" == verbose ]]; then
         if pct exec "$CTID" -- env GAME_PORT="$GAME_PORT" MAX_PLAYERS="$MAX_PLAYERS" SERVER_NAME="$SERVER_NAME" GITHUB_REPO="$GITHUB_REPO" GITHUB_BRANCH="$GITHUB_BRANCH" HELPER_VERSION="$HELPER_VERSION" bash /root/palworld-install-guest.sh 2>&1 | tee "$INSTALL_LOG"; then break; fi
     else
-        if pct exec "$CTID" -- env GAME_PORT="$GAME_PORT" MAX_PLAYERS="$MAX_PLAYERS" SERVER_NAME="$SERVER_NAME" GITHUB_REPO="$GITHUB_REPO" GITHUB_BRANCH="$GITHUB_BRANCH" HELPER_VERSION="$HELPER_VERSION" bash /root/palworld-install-guest.sh >"$INSTALL_LOG" 2>&1; then break; fi
+        printf 'Installing Palworld in LXC %s. Output is being recorded at %s.\n' "$CTID" "$INSTALL_LOG"
+        pct exec "$CTID" -- env GAME_PORT="$GAME_PORT" MAX_PLAYERS="$MAX_PLAYERS" SERVER_NAME="$SERVER_NAME" GITHUB_REPO="$GITHUB_REPO" GITHUB_BRANCH="$GITHUB_BRANCH" HELPER_VERSION="$HELPER_VERSION" bash /root/palworld-install-guest.sh >"$INSTALL_LOG" 2>&1 &
+        install_pid=$!
+        while kill -0 "$install_pid" 2>/dev/null; do
+            sleep 15
+            if kill -0 "$install_pid" 2>/dev/null; then
+                printf 'Still installing Palworld in LXC %s; see %s for detailed progress.\n' "$CTID" "$INSTALL_LOG"
+            fi
+        done
+        if wait "$install_pid"; then break; fi
     fi
     choice="$(ui_menu 'Installation needs attention' "Guest installation failed. Log: $INSTALL_LOG" retry 'Retry in verbose console mode' console 'Open LXC shell for debugging' exit 'Stop here and leave the LXC for debugging')" || choice=exit
     case "$choice" in
