@@ -86,8 +86,45 @@ if [[ "$HELPER_UPDATE_ONLY" != 1 && ! -x /opt/steamcmd/steamcmd.sh ]]; then
     chown -R palworld:palworld /opt/steamcmd
 fi
 
+install_palworld_server() {
+    local attempt=1 max_attempts=3 status=0 attempt_log=/var/log/palworld/steamcmd-install.log
+    while (( attempt <= max_attempts )); do
+        echo "Installing Palworld dedicated server with SteamCMD (attempt $attempt/$max_attempts)..."
+        : > "$attempt_log"
+        if runuser -u palworld -- /opt/steamcmd/steamcmd.sh \
+            +@sSteamCmdForcePlatformType linux \
+            +force_install_dir /opt/palworld/server \
+            +login anonymous +app_info_update 1 \
+            +app_update 2394010 validate +quit 2>&1 | tee "$attempt_log"; then
+            status=0
+        else
+            status=$?
+        fi
+
+        # SteamCMD can exit successfully while still reporting this app-info error.
+        # Require the actual Linux server binary as well as a clean app update.
+        if (( status == 0 )) && ! grep -Fq "ERROR! Failed to install app '2394010'" "$attempt_log" \
+            && [[ -x /opt/palworld/server/Pal/Binaries/Linux/PalServer-Linux-Shipping ]]; then
+            echo 'Palworld dedicated server files verified.'
+            return 0
+        fi
+
+        if (( attempt < max_attempts )); then
+            local delay=$((attempt * 20))
+            echo "SteamCMD did not complete the Palworld download (exit $status). Refreshing app metadata and retrying in ${delay}s..." >&2
+            sleep "$delay"
+        fi
+        ((attempt += 1))
+    done
+
+    echo "Palworld download did not complete after $max_attempts attempts." >&2
+    echo "Last SteamCMD output: $attempt_log" >&2
+    echo "Check Steam availability/network access, then resume the installer; it will retry without recreating the LXC." >&2
+    return 1
+}
+
 if [[ "$HELPER_UPDATE_ONLY" != 1 ]]; then
-    runuser -u palworld -- /opt/steamcmd/steamcmd.sh +force_install_dir /opt/palworld/server +login anonymous +app_update 2394010 validate +quit
+    install_palworld_server
 fi
 
 mkdir -p /opt/palworld/server/Pal/Saved/Config/LinuxServer
