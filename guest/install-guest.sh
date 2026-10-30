@@ -51,9 +51,8 @@ ExecStart=-/sbin/agetty --autologin root --noclear tty1 $TERM
 TTY1_GETTY
 systemctl daemon-reload
 systemctl enable getty@tty1.service >/dev/null 2>&1 || true
-systemctl restart getty@tty1.service >/dev/null 2>&1 || true
 cat > /etc/profile.d/palworld-server-banner.sh <<'BANNER'
-if [ "$(id -u)" -eq 0 ] && [ -t 1 ]; then
+if [ "$(id -u)" -eq 0 ] && [ -t 1 ] && [ "${PALWORLD_BANNER_SHOWN:-0}" != 1 ]; then
     _pw_ip="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | head -n1 || true)"
     _pw_port="$(awk -F= '$1=="GAME_PORT"{print $2}' /etc/palworld-manager/server.env 2>/dev/null)"
     _pw_name="$(hostname)"
@@ -65,10 +64,21 @@ if [ "$(id -u)" -eq 0 ] && [ -t 1 ]; then
     printf '\033[1;32m  Local IP:     %s\033[0m\n' "${_pw_ip:-unavailable}"
     printf '\033[1;32m  Game server:  %s:%s/udp\033[0m\n' "${_pw_ip:-unavailable}" "${_pw_port:-8211}"
     printf '\033[1;32m  Web manager:  https://%s:8443\033[0m\n\n' "${_pw_ip:-unavailable}"
+    export PALWORLD_BANNER_SHOWN=1
     unset _pw_ip _pw_port _pw_name _pw_os
 fi
 BANNER
 chmod 0644 /etc/profile.d/palworld-server-banner.sh
+if ! grep -Fq '# Palworld LXC login banner' /etc/bash.bashrc; then
+    cat >> /etc/bash.bashrc <<'BASHRC'
+
+# Palworld LXC login banner
+if [ -n "${PS1:-}" ] && [ -r /etc/profile.d/palworld-server-banner.sh ]; then
+    . /etc/profile.d/palworld-server-banner.sh
+fi
+BASHRC
+fi
+systemctl restart getty@tty1.service >/dev/null 2>&1 || true
 
 if [[ "$HELPER_UPDATE_ONLY" != 1 && ! -x /opt/steamcmd/steamcmd.sh ]]; then
     curl -fL --retry 3 https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz -o /tmp/steamcmd_linux.tar.gz
@@ -87,6 +97,17 @@ if [[ ! -f "$CONFIG" ]]; then
     if [[ -f /opt/palworld/server/DefaultPalWorldSettings.ini ]]; then cp /opt/palworld/server/DefaultPalWorldSettings.ini "$CONFIG"; else printf '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=()\n' > "$CONFIG"; fi
 fi
 if [[ "$HELPER_UPDATE_ONLY" != 1 ]]; then chown -R palworld:palworld /opt/palworld; fi
+
+ensure_settings_access() {
+    local dir
+    for dir in /opt/palworld /opt/palworld/server /opt/palworld/server/Pal \
+        /opt/palworld/server/Pal/Saved /opt/palworld/server/Pal/Saved/Config \
+        /opt/palworld/server/Pal/Saved/Config/LinuxServer; do
+        [[ ! -d "$dir" ]] || { chgrp palworld "$dir"; chmod g+rx "$dir"; }
+    done
+    if [[ -f "$CONFIG" ]]; then chown palworld:palworld "$CONFIG"; chmod 0640 "$CONFIG"; fi
+}
+ensure_settings_access
 
 cat > /usr/local/bin/palworld-config <<'PY'
 #!/usr/bin/env python3
@@ -408,6 +429,7 @@ printf '%s\n' "$GITHUB_BRANCH" > /etc/palworld-manager/github-branch
 /usr/local/bin/palworld-config ServerPlayerMaxNum "$MAX_PLAYERS"
 /usr/local/bin/palworld-config PublicPort "$GAME_PORT"
 /usr/local/bin/palworld-config CrossplayPlatforms Steam,Xbox,PS5,Mac
+ensure_settings_access
 systemctl daemon-reload
 if [[ -f /root/palworld-helper-update.sh ]]; then install -o root -g root -m 0755 /root/palworld-helper-update.sh /usr/local/bin/palworld-helper-update; fi
 if [[ "$HELPER_UPDATE_ONLY" == 1 ]]; then

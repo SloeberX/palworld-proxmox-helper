@@ -12,7 +12,7 @@ A small, self-hosted Proxmox VE helper that creates a Debian 13 LXC for a standa
 - LAN-only HTTPS web panel with login, live status, start/stop/restart, settings, logs, game/helper updates, password changes, and save/config backups.
 - Web panel includes a persistent light/dark theme toggle, backup download, and upload/import restore for offsite archives.
 - Helper updater refreshes the management scripts and service definitions from GitHub while preserving the world, settings, backup files, and web login.
-- Root auto-login on the Proxmox LXC console; `pct enter <CTID>` also opens a root shell directly.
+- Proxmox console mode is set to **Shell**, which opens a root shell without a username or password; `pct enter <CTID>` also opens a root shell directly.
 - On each console login, a colored banner shows Debian version, hostname, current LAN IP, Palworld UDP address, and web-manager URL.
 
 The public-IP watcher only reads the current external IPv4 from `api.ipify.org`. It does not configure or update DDNS. Your DDNS client can continue running separately.
@@ -39,7 +39,7 @@ The helper creates an unprivileged LXC with nesting enabled, installs Debian dep
 
 At first installation, the completion screen and Proxmox console show the LXC's local IP, game address/UDP port, web panel address, and login details. The default web username is `admin`; the installer generates a unique initial password and prints it at the end. Save it, sign in, and then change it from the **Web login** card. There is no shared hard-coded default password. The panel uses a local self-signed certificate, so your browser will show a certificate warning on first access. Visit `https://<LXC-LAN-IP>:8443` from a device on your LAN. The web service binds to the container's LAN address; do not forward TCP 8443 on your router. A stable DHCP reservation or static LXC address is recommended.
 
-The Proxmox console is set to auto-login as root. This applies to the local Proxmox console only; it does not enable passwordless SSH. `pct enter <CTID>` already opens a root shell without a guest username or password.
+The Proxmox console uses Shell mode, so opening its Console tab starts a root shell without asking for a username or password. The colored Palworld banner is printed when that shell opens. This does not enable passwordless SSH. `pct enter <CTID>` also opens a root shell directly.
 
 For the prior partial install, rerun the updated helper and enter container ID `320` when prompted. Confirm **Resume Palworld setup** to continue in that container. The helper restarts it to apply nesting; saves and the existing LXC disk are retained. If clean mode appears idle, it prints the host log path under `/tmp/palworld-install-<CTID>.log`; inspect it with `tail -f /tmp/palworld-install-320.log` from another Proxmox shell.
 

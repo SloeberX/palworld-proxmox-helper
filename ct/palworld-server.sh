@@ -192,7 +192,9 @@ if [[ "$RESUME_EXISTING" == 1 ]]; then
     if [[ ",$FEATURES," != *,nesting=1,* ]]; then
         if [[ ",$FEATURES," == *,nesting=0,* ]]; then FEATURES="${FEATURES/nesting=0/nesting=1}"
         else FEATURES="${FEATURES:+$FEATURES,}nesting=1"; fi
-        pct set "$CTID" --features "$FEATURES" || die "Could not enable nesting on LXC $CTID."
+        pct set "$CTID" --features "$FEATURES" --cmode shell || die "Could not configure LXC $CTID for resume."
+    else
+        pct set "$CTID" --cmode shell || die "Could not set the LXC console shell mode."
     fi
     pct status "$CTID" | grep -q running || pct start "$CTID" || die "Could not start LXC $CTID."
 else
@@ -200,7 +202,7 @@ else
     ui_status "CREATING LXC\n\nContainer: $CTID\nStorage: $ROOT_STORAGE\nNetwork: $IP_CIDR"
     pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
         --hostname "$HOSTNAME" --ostype debian --unprivileged 1 \
-        --features nesting=1 \
+        --features nesting=1 --cmode shell \
         --cores "$CORES" --memory "$MEMORY" --swap "$SWAP" \
         --rootfs "$ROOT_STORAGE:$DISK" --net0 "$NET_SPEC" --onboot 1 --start 1 || die "Proxmox failed to create LXC $CTID. Check the task log above."
 fi
@@ -246,5 +248,5 @@ IP_ADDR="$(pct exec "$CTID" -- hostname -I | tr ' ' '\n' | grep -E '^[0-9]+\.[0-
 [[ -n "$IP_ADDR" ]] || IP_ADDR='not yet assigned (check LXC network)'
 WEB_PASSWORD="$(sed -n 's/^WEB_PANEL_PASSWORD=//p' "$INSTALL_LOG" | tail -n1)"
 WEB_URL="https://${IP_ADDR}:8443"
-ui_msg "PALWORLD SERVER READY\n\nContainer: $CTID  |  Hostname: $HOSTNAME\nLocal IP: $IP_ADDR\nGame server: $IP_ADDR:$GAME_PORT (UDP)\nWeb manager: $WEB_URL\nUsername: admin\nInitial password: ${WEB_PASSWORD:-check install output}\n\nForward UDP $GAME_PORT to $IP_ADDR:$GAME_PORT on your router. Keep TCP 8443 LAN-only. Proxmox console opens as root automatically."
+ui_msg "PALWORLD SERVER READY\n\nContainer: $CTID  |  Hostname: $HOSTNAME\nLocal IP: $IP_ADDR\nGame server: $IP_ADDR:$GAME_PORT (UDP)\nWeb manager: $WEB_URL\nUsername: admin\nInitial password: ${WEB_PASSWORD:-check install output}\n\nForward UDP $GAME_PORT to $IP_ADDR:$GAME_PORT on your router. Keep TCP 8443 LAN-only. Proxmox Console opens a root shell without a login prompt."
 printf '\nPalworld Server Manager is ready\n  LXC:          %s (%s)\n  Local IP:     %s\n  Game server:  %s:%s/udp\n  Web manager:  %s\n  Username:     admin\n  Password:     %s\n\n' "$CTID" "$HOSTNAME" "$IP_ADDR" "$IP_ADDR" "$GAME_PORT" "$WEB_URL" "${WEB_PASSWORD:-check $INSTALL_LOG}"
