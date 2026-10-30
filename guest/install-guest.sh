@@ -33,8 +33,8 @@ install -d -o root -g palworld-web -m 0750 /etc/palworld-web /var/lib/palworld-w
 install -d -o palworld-web -g palworld-web -m 0700 /var/lib/palworld-web/imports
 install -d -o root -g palworld-web -m 0750 /opt/palworld/backups
 
-mkdir -p /etc/systemd/system/console-getty.service.d /etc/systemd/system/getty@.service.d
-cat > /etc/systemd/system/console-getty.service.d/20-palworld-autologin.conf <<'CONSOLE_GETTY'
+mkdir -p /etc/systemd/system/console-getty.service.d /etc/systemd/system/getty@.service.d /etc/systemd/system/getty@tty1.service.d
+cat > /etc/systemd/system/console-getty.service.d/override.conf <<'CONSOLE_GETTY'
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear console $TERM
@@ -44,8 +44,14 @@ cat > /etc/systemd/system/getty@.service.d/20-palworld-autologin.conf <<'TTY_GET
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 TTY_GETTY
+cat > /etc/systemd/system/getty@tty1.service.d/override.conf <<'TTY1_GETTY'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear tty1 $TERM
+TTY1_GETTY
 systemctl daemon-reload
 systemctl enable getty@tty1.service >/dev/null 2>&1 || true
+systemctl restart getty@tty1.service >/dev/null 2>&1 || true
 cat > /etc/profile.d/palworld-server-banner.sh <<'BANNER'
 if [ "$(id -u)" -eq 0 ] && [ -t 1 ]; then
     _pw_ip="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | head -n1 || true)"
