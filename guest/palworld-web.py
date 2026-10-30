@@ -121,8 +121,15 @@ def status():
 def settings():
     try:
         return jsonify(settings=config_settings())
-    except OSError:
-        return jsonify(error='Palworld settings file is not readable.'), 500
+    except FileNotFoundError:
+        app.logger.exception('Palworld settings file is missing: %s', CONFIG)
+        return jsonify(error=f'Palworld settings file was not found at {CONFIG}.'), 500
+    except PermissionError:
+        app.logger.exception('Web service cannot read Palworld settings file: %s', CONFIG)
+        return jsonify(error='Web service was denied access to PalWorldSettings.ini. Check LXC file permissions.'), 500
+    except OSError as exc:
+        app.logger.exception('Could not read Palworld settings file: %s', CONFIG)
+        return jsonify(error=f'Could not read PalWorldSettings.ini: {exc.strerror or "I/O error"}.'), 500
 
 @app.post('/api/action')
 @login_required
