@@ -109,7 +109,10 @@ curl -fLsS --retry 3 "$BASE_URL/guest/palworld-webctl.sh" -o "$WEB_CTL_SOURCE" |
 # GitHub uploads from Windows can preserve CRLF. Normalize guest assets before
 # pushing them so Bash doesn't parse `set -euo pipefail` as an invalid option.
 for asset in "$GUEST_INSTALLER" "$MANAGER_SOURCE" "$HELPER_UPDATER_SOURCE" "$WEB_APP_SOURCE" "$WEB_CTL_SOURCE"; do
-    sed -i 's/\r$//' "$asset"
+    normalized="${asset}.lf"
+    tr -d '\015' < "$asset" > "$normalized" || die "Could not normalize downloaded asset $asset."
+    mv -f -- "$normalized" "$asset"
+    if LC_ALL=C grep -q $'\r' "$asset"; then die "Downloaded asset still contains CR characters: $asset"; fi
 done
 
 NODE="$(hostname)"

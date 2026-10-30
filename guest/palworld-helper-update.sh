@@ -17,7 +17,15 @@ trap 'rm -rf -- "$TMP_DIR"' EXIT
 
 for asset in install-guest.sh palworld-manager.sh palworld-helper-update.sh palworld-web.py palworld-webctl.sh; do
     curl -fLsS --retry 3 "$BASE_URL/$asset" -o "$TMP_DIR/$asset"
-    sed -i 's/\r$//' "$TMP_DIR/$asset"
+    # Strip CR bytes regardless of whether the file uses CRLF or mixed endings.
+    # This is important for Bash scripts: CRLF on `set -Eeuo pipefail` makes
+    # Bash reject `pipefail` before the installer can run.
+    tr -d '\015' < "$TMP_DIR/$asset" > "$TMP_DIR/$asset.lf"
+    mv -f -- "$TMP_DIR/$asset.lf" "$TMP_DIR/$asset"
+    if LC_ALL=C grep -q $'\r' "$TMP_DIR/$asset"; then
+        echo "Downloaded asset still contains CR characters: $asset" >&2
+        exit 1
+    fi
 done
 HELPER_VERSION="$(curl -fLsS --retry 2 "https://raw.githubusercontent.com/$GITHUB_REPO/$GITHUB_BRANCH/VERSION" || cat /etc/palworld-manager/version 2>/dev/null || echo 0.1.0)"
 
