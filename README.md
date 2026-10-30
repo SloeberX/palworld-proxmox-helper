@@ -37,11 +37,13 @@ The entry script downloads the guest installer, helper updater, console manager,
 
 The helper creates an unprivileged LXC with nesting enabled, installs Debian dependencies and SteamCMD, downloads Palworld App ID `2394010`, writes the systemd units, and starts the server. It selects the newest available Debian 13 standard template and provides separate storage pickers for the container disk and template, showing storage type and correctly converted free capacity.
 
+Guest scripts are normalized to Linux line endings before execution, including scripts downloaded from GitHub. This prevents Windows CRLF uploads from breaking Bash startup.
+
 At first installation, the completion screen and Proxmox console show the LXC's local IP, game address/UDP port, web panel address, and login details. The default web username is `admin`; the installer generates a unique initial password and prints it at the end. Save it, sign in, and then change it from the **Web login** card. There is no shared hard-coded default password. The panel uses a local self-signed certificate, so your browser will show a certificate warning on first access. Visit `https://<LXC-LAN-IP>:8443` from a device on your LAN. The web service binds to the container's LAN address; do not forward TCP 8443 on your router. A stable DHCP reservation or static LXC address is recommended.
 
 The Proxmox console uses Shell mode, so opening its Console tab starts a root shell without asking for a username or password. The colored Palworld banner is printed when that shell opens. This does not enable passwordless SSH. `pct enter <CTID>` also opens a root shell directly.
 
-For the prior partial install, rerun the updated helper and enter container ID `320` when prompted. Confirm **Resume Palworld setup** to continue in that container. The helper restarts it to apply nesting; saves and the existing LXC disk are retained. If clean mode appears idle, it prints the host log path under `/tmp/palworld-install-<CTID>.log`; inspect it with `tail -f /tmp/palworld-install-320.log` from another Proxmox shell.
+For the prior partial install, rerun the updated helper and enter container ID `320` when prompted. Confirm **Resume Palworld setup** to continue in that container. The helper restarts it to apply nesting and Shell console mode, re-copies normalized guest scripts, and preserves the existing LXC disk. If clean mode appears idle, it prints the host log path under `/tmp/palworld-install-<CTID>.log`; inspect it with `tail -f /tmp/palworld-install-320.log` from another Proxmox shell.
 
 Open the in-container menu from the Proxmox host:
 

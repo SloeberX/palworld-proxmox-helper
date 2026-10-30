@@ -17,6 +17,7 @@ trap 'rm -rf -- "$TMP_DIR"' EXIT
 
 for asset in install-guest.sh palworld-manager.sh palworld-helper-update.sh palworld-web.py palworld-webctl.sh; do
     curl -fLsS --retry 3 "$BASE_URL/$asset" -o "$TMP_DIR/$asset"
+    sed -i 's/\r$//' "$TMP_DIR/$asset"
 done
 HELPER_VERSION="$(curl -fLsS --retry 2 "https://raw.githubusercontent.com/$GITHUB_REPO/$GITHUB_BRANCH/VERSION" || cat /etc/palworld-manager/version 2>/dev/null || echo 0.1.0)"
 

@@ -106,6 +106,11 @@ curl -fLsS --retry 3 "$BASE_URL/guest/palworld-manager.sh" -o "$MANAGER_SOURCE" 
 curl -fLsS --retry 3 "$BASE_URL/guest/palworld-helper-update.sh" -o "$HELPER_UPDATER_SOURCE" || die "Could not download the helper updater from $BASE_URL. Check the repository and branch."
 curl -fLsS --retry 3 "$BASE_URL/guest/palworld-web.py" -o "$WEB_APP_SOURCE" || die "Could not download the web app from $BASE_URL. Check the repository and branch."
 curl -fLsS --retry 3 "$BASE_URL/guest/palworld-webctl.sh" -o "$WEB_CTL_SOURCE" || die "Could not download the web control wrapper from $BASE_URL. Check the repository and branch."
+# GitHub uploads from Windows can preserve CRLF. Normalize guest assets before
+# pushing them so Bash doesn't parse `set -euo pipefail` as an invalid option.
+for asset in "$GUEST_INSTALLER" "$MANAGER_SOURCE" "$HELPER_UPDATER_SOURCE" "$WEB_APP_SOURCE" "$WEB_CTL_SOURCE"; do
+    sed -i 's/\r$//' "$asset"
+done
 
 NODE="$(hostname)"
 NEXT_ID="$(pvesh get /cluster/nextid)"
