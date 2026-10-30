@@ -17,6 +17,11 @@ trap cleanup EXIT
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
 
+header_info() {
+    printf '\n\033[1;36mPalworld Dedicated Server\033[0m\n'
+    printf '\033[1;34mProxmox LXC Helper\033[0m  |  Debian 13  |  Crossplay enabled\n\n'
+}
+
 ui_input() {
     local title="$1" prompt="$2" default="$3" answer
     if command -v whiptail >/dev/null 2>&1; then
@@ -90,6 +95,7 @@ select_storage() {
 }
 
 [[ $EUID -eq 0 ]] || die "Run this on the Proxmox VE host as root."
+header_info
 need_cmd pct
 need_cmd pvesh
 need_cmd pvesm
@@ -105,57 +111,104 @@ NODE="$(hostname)"
 NEXT_ID="$(pvesh get /cluster/nextid)"
 CTID="$(ui_input 'Container ID' 'LXC ID' "$NEXT_ID")" || exit 0
 [[ "$CTID" =~ ^[0-9]{3,6}$ ]] || die "Container ID must be 3 to 6 digits."
-[[ ! -e "/etc/pve/lxc/$CTID.conf" ]] || die "Container ID $CTID is already in use."
-
-HOSTNAME="$(ui_input 'Container hostname' 'Hostname' 'palworld')" || exit 0
+RESUME_EXISTING=0
+if [[ -e "/etc/pve/lxc/$CTID.conf" ]]; then
+    choice="$(ui_menu 'Existing container found' "Container $CTID already exists. Resume setup only if this is the Palworld LXC from a previous failed run. It will be restarted; its disk and save files are kept." resume 'Resume Palworld setup in this LXC' cancel 'Cancel')" || exit 0
+    [[ "$choice" == resume ]] || exit 0
+    RESUME_EXISTING=1
+    HOSTNAME="$(pct config "$CTID" | sed -n 's/^hostname: //p' | head -n1)"
+    [[ -n "$HOSTNAME" ]] || HOSTNAME="$(ui_input 'Container hostname' 'Hostname' 'palworld')" || exit 0
+    BRIDGE="$(pct config "$CTID" | sed -n 's/^net0:.*bridge=\([^,]*\).*/\1/p' | head -n1)"
+    BRIDGE="${BRIDGE:-existing bridge}"
+    ROOT_STORAGE='existing LXC disk'
+    TEMPLATE_STORAGE='Debian 13 already installed'
+    DISK='existing'
+    CORES='existing'
+    MEMORY='existing'
+    SWAP='existing'
+    EXISTING_IP="$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    IP_CIDR="${EXISTING_IP:-existing network}"
+else
+    HOSTNAME="$(ui_input 'Container hostname' 'Hostname' 'palworld')" || exit 0
+    BRIDGE="$(ui_input 'Network bridge' 'Proxmox bridge' 'vmbr0')" || exit 0
+    ROOT_STORAGE="$(select_storage rootdir 'Select where the LXC disk should live. Free space is shown.' 'local-lvm')" || exit 0
+    TEMPLATE_STORAGE="$(select_storage vztmpl 'Select storage for the Debian 13 container template.' 'local')" || exit 0
+    DISK="$(ui_input 'Disk size' 'Root disk size in GiB' '40')" || exit 0
+    CORES="$(ui_input 'CPU cores' 'CPU cores' '4')" || exit 0
+    MEMORY="$(ui_input 'Memory' 'RAM in MiB (Palworld recommends 16 GiB or more)' '16384')" || exit 0
+    SWAP="$(ui_input 'Swap' 'Swap in MiB' '2048')" || exit 0
+fi
 [[ "$HOSTNAME" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$ ]] || die "Use letters, numbers, dots, or hyphens for the hostname."
-BRIDGE="$(ui_input 'Network bridge' 'Proxmox bridge' 'vmbr0')" || exit 0
-[[ "$BRIDGE" =~ ^[A-Za-z0-9_.:-]+$ ]] || die "Invalid bridge name."
-ROOT_STORAGE="$(select_storage rootdir 'Select where the LXC disk should live. Free space is shown.' 'local-lvm')" || exit 0
-TEMPLATE_STORAGE="$(select_storage vztmpl 'Select storage for the Debian 13 container template.' 'local')" || exit 0
-DISK="$(ui_input 'Disk size' 'Root disk size in GiB' '40')" || exit 0
-CORES="$(ui_input 'CPU cores' 'CPU cores' '4')" || exit 0
-MEMORY="$(ui_input 'Memory' 'RAM in MiB (Palworld recommends 16 GiB or more)' '16384')" || exit 0
-SWAP="$(ui_input 'Swap' 'Swap in MiB' '2048')" || exit 0
-GAME_PORT="$(ui_input 'Game port' 'Palworld UDP game port' '8211')" || exit 0
-MAX_PLAYERS="$(ui_input 'Player limit' 'Maximum player count' '32')" || exit 0
-SERVER_NAME="$(ui_input 'Server name' 'Name shown in Palworld' 'Palworld Community Server')" || exit 0
-for n in "$DISK" "$CORES" "$MEMORY" "$SWAP" "$GAME_PORT" "$MAX_PLAYERS"; do [[ "$n" =~ ^[0-9]+$ ]] || die "Numeric option has an invalid value: $n"; done
-(( DISK >= 20 && CORES >= 2 && MEMORY >= 8192 && GAME_PORT >= 1 && GAME_PORT <= 65535 && MAX_PLAYERS >= 1 && MAX_PLAYERS <= 32 )) || die "One or more values are outside supported limits."
+if [[ "$RESUME_EXISTING" != 1 ]]; then [[ "$BRIDGE" =~ ^[A-Za-z0-9_.:-]+$ ]] || die "Invalid bridge name."; fi
+GAME_PORT_DEFAULT=8211
+MAX_PLAYERS_DEFAULT=32
+SERVER_NAME_DEFAULT='Palworld Community Server'
+if [[ "$RESUME_EXISTING" == 1 ]]; then
+    EXISTING_ENV="$(pct exec "$CTID" -- bash -c 'if [[ -r /etc/palworld-manager/server.env ]]; then source /etc/palworld-manager/server.env; printf "%s\n%s\n%s\n" "${GAME_PORT:-}" "${MAX_PLAYERS:-}" "${SERVER_NAME:-}"; fi' 2>/dev/null || true)"
+    mapfile -t EXISTING_VALUES <<< "$EXISTING_ENV"
+    GAME_PORT_DEFAULT="${EXISTING_VALUES[0]:-8211}"
+    MAX_PLAYERS_DEFAULT="${EXISTING_VALUES[1]:-32}"
+    SERVER_NAME_DEFAULT="${EXISTING_VALUES[2]:-Palworld Community Server}"
+fi
+GAME_PORT="$(ui_input 'Game port' 'Palworld UDP game port' "$GAME_PORT_DEFAULT")" || exit 0
+MAX_PLAYERS="$(ui_input 'Player limit' 'Maximum player count' "$MAX_PLAYERS_DEFAULT")" || exit 0
+SERVER_NAME="$(ui_input 'Server name' 'Name shown in Palworld' "$SERVER_NAME_DEFAULT")" || exit 0
+[[ "$GAME_PORT" =~ ^[0-9]+$ && "$MAX_PLAYERS" =~ ^[0-9]+$ ]] || die "Game port and player limit must be numeric."
+(( GAME_PORT >= 1 && GAME_PORT <= 65535 && MAX_PLAYERS >= 1 && MAX_PLAYERS <= 32 )) || die "Game port or player limit is outside supported limits."
+if [[ "$RESUME_EXISTING" != 1 ]]; then
+    for n in "$DISK" "$CORES" "$MEMORY" "$SWAP"; do [[ "$n" =~ ^[0-9]+$ ]] || die "Numeric option has an invalid value: $n"; done
+    (( DISK >= 20 && CORES >= 2 && MEMORY >= 8192 )) || die "Disk, CPU, or memory values are outside supported limits."
+fi
 [[ -z "$GITHUB_REPO" || "$GITHUB_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "GitHub repo must look like owner/repository."
 
-ui_status "PREPARING TEMPLATE\n\nRefreshing the Proxmox template index and selecting the newest available Debian 13 image..."
-pveam update
-TEMPLATE="$(pveam available | awk '$2 ~ /^debian-13-standard_.*_amd64\.tar\.zst$/ {print $2}' | sort -V | tail -n1)"
-[[ -n "$TEMPLATE" ]] || die "No Debian 13 amd64 template is available from the Proxmox template index."
-if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -Fq "$TEMPLATE"; then
-    pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
-fi
+if [[ "$RESUME_EXISTING" != 1 ]]; then
+    ui_status "PREPARING TEMPLATE\n\nRefreshing the Proxmox template index and selecting the newest available Debian 13 image..."
+    pveam update
+    TEMPLATE="$(pveam available | awk '$2 ~ /^debian-13-standard_.*_amd64\.tar\.zst$/ {print $2}' | sort -V | tail -n1)"
+    [[ -n "$TEMPLATE" ]] || die "No Debian 13 amd64 template is available from the Proxmox template index."
+    if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -Fq "$TEMPLATE"; then
+        pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
+    fi
 
-IP_CIDR="$(ui_input 'Container IP' 'Use dhcp or enter a static IPv4/CIDR (example 192.168.50.111/24). Reserve a stable LAN IP for router forwarding.' 'dhcp')" || exit 0
-if [[ "$IP_CIDR" == dhcp ]]; then
-    NET_SPEC="name=eth0,bridge=$BRIDGE,ip=dhcp,ip6=auto"
-else
-    [[ "$IP_CIDR" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/([0-9]|[12][0-9]|3[0-2])$ ]] || die "Static IP must be IPv4/CIDR, such as 192.168.50.111/24."
-    GATEWAY="$(ui_input 'Default gateway' 'LAN router address (example 192.168.50.1)' '192.168.50.1')" || exit 0
-    [[ "$GATEWAY" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "Gateway must be an IPv4 address."
-    NET_SPEC="name=eth0,bridge=$BRIDGE,ip=$IP_CIDR,gw=$GATEWAY,ip6=auto"
+    IP_CIDR="$(ui_input 'Container IP' 'Use dhcp or enter a static IPv4/CIDR (example 192.168.50.111/24). Reserve a stable LAN IP for router forwarding.' 'dhcp')" || exit 0
+    if [[ "$IP_CIDR" == dhcp ]]; then
+        NET_SPEC="name=eth0,bridge=$BRIDGE,ip=dhcp,ip6=auto"
+    else
+        [[ "$IP_CIDR" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/([0-9]|[12][0-9]|3[0-2])$ ]] || die "Static IP must be IPv4/CIDR, such as 192.168.50.111/24."
+        GATEWAY="$(ui_input 'Default gateway' 'LAN router address (example 192.168.50.1)' '192.168.50.1')" || exit 0
+        [[ "$GATEWAY" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "Gateway must be an IPv4 address."
+        NET_SPEC="name=eth0,bridge=$BRIDGE,ip=$IP_CIDR,gw=$GATEWAY,ip6=auto"
+    fi
 fi
 [[ "$SERVER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.\ -]{0,63}$ ]] || die "Server name may contain letters, numbers, spaces, dots, underscores, and hyphens (up to 64 characters)."
 INSTALL_MODE="$(ui_menu 'Installation display' 'Choose how installation progress should be shown.' clean 'Progress screens' verbose 'Verbose console output')" || exit 0
 
-ui_msg "Ready to create Debian 13 LXC $CTID on $NODE. It will use $CORES cores, ${MEMORY} MiB RAM, ${DISK} GiB disk, and game port UDP $GAME_PORT. Ensure the LAN address is stable for port forwarding."
-
-ui_status "CREATING LXC\n\nContainer: $CTID\nStorage: $ROOT_STORAGE\nNetwork: $IP_CIDR"
-pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
-    --hostname "$HOSTNAME" --ostype debian --unprivileged 1 \
-    --features nesting=1 \
-    --cores "$CORES" --memory "$MEMORY" --swap "$SWAP" \
-    --rootfs "$ROOT_STORAGE:$DISK" --net0 "$NET_SPEC" --onboot 1 --start 1
+if [[ "$RESUME_EXISTING" == 1 ]]; then
+    ui_msg "Ready to resume Palworld setup in LXC $CTID. Existing storage and network settings will be kept; the container will restart to apply nesting."
+    ui_status "RESUMING PALWORLD LXC\n\nContainer: $CTID\nKeeping its existing disk and network configuration..."
+    pct exec "$CTID" -- systemctl stop palworld.service >/dev/null 2>&1 || true
+    if pct status "$CTID" | grep -q running; then pct shutdown "$CTID" --timeout 120 || die "Could not gracefully stop LXC $CTID. It was left unchanged; inspect it with pct status $CTID."; fi
+    FEATURES="$(pct config "$CTID" | sed -n 's/^features: //p' | head -n1)"
+    if [[ ",$FEATURES," != *,nesting=1,* ]]; then
+        if [[ ",$FEATURES," == *,nesting=0,* ]]; then FEATURES="${FEATURES/nesting=0/nesting=1}"
+        else FEATURES="${FEATURES:+$FEATURES,}nesting=1"; fi
+        pct set "$CTID" --features "$FEATURES" || die "Could not enable nesting on LXC $CTID."
+    fi
+    pct status "$CTID" | grep -q running || pct start "$CTID" || die "Could not start LXC $CTID."
+else
+    ui_msg "Ready to create Debian 13 LXC $CTID on $NODE. It will use $CORES cores and ${MEMORY} MiB RAM, with $DISK GiB disk and game port UDP $GAME_PORT."
+    ui_status "CREATING LXC\n\nContainer: $CTID\nStorage: $ROOT_STORAGE\nNetwork: $IP_CIDR"
+    pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
+        --hostname "$HOSTNAME" --ostype debian --unprivileged 1 \
+        --features nesting=1 \
+        --cores "$CORES" --memory "$MEMORY" --swap "$SWAP" \
+        --rootfs "$ROOT_STORAGE:$DISK" --net0 "$NET_SPEC" --onboot 1 --start 1 || die "Proxmox failed to create LXC $CTID. Check the task log above."
+fi
 
 ui_status "STARTING LXC\n\nWaiting for Debian 13 to boot before setup..."
 for _ in {1..30}; do pct status "$CTID" | grep -q running && break; sleep 2; done
 pct status "$CTID" | grep -q running || die "LXC $CTID did not start. Inspect its Proxmox task log."
+if [[ "$RESUME_EXISTING" == 1 ]]; then pct exec "$CTID" -- systemctl stop palworld.service >/dev/null 2>&1 || true; fi
 
 ui_status "PREPARING SERVER\n\nCopying the Palworld manager and installer into LXC $CTID..."
 pct push "$CTID" "$GUEST_INSTALLER" /root/palworld-install-guest.sh
@@ -164,6 +217,7 @@ pct push "$CTID" "$HELPER_UPDATER_SOURCE" /root/palworld-helper-update.sh
 pct push "$CTID" "$WEB_APP_SOURCE" /root/palworld-web.py
 pct push "$CTID" "$WEB_CTL_SOURCE" /root/palworld-webctl.sh
 INSTALL_LOG="/tmp/palworld-install-${CTID}.log"
+(umask 077; : > "$INSTALL_LOG")
 while true; do
     ui_status "INSTALLING PALWORLD\n\nContainer: $CTID ($HOSTNAME)\nStage: Installing Debian packages and downloading the dedicated server\n\nThis can take several minutes."
     if [[ "$INSTALL_MODE" == verbose ]]; then

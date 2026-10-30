@@ -32,13 +32,15 @@ Upload the contents of this project folder to the `SloeberX/palworld-proxmox-hel
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/SloeberX/palworld-proxmox-helper/main/ct/palworld-server.sh)"
 ```
 
-The entry script downloads the guest installer, helper updater, console manager, and web panel files from the same public repository, then asks for the container ID, hostname, bridge, storage, resources, network settings, game port, and server name. The container uses DHCP by default. For a static address, supply IPv4/CIDR and the LAN gateway. Choose clean progress screens or verbose console output before installation; if guest setup fails, the installer offers a verbose retry, an LXC shell, or leaving the container in place for debugging.
+The entry script downloads the guest installer, helper updater, console manager, and web panel files from the same public repository, then asks for the container ID, hostname, bridge, storage, resources, network settings, game port, and server name. The container uses DHCP by default. For a static address, supply IPv4/CIDR and the LAN gateway. Choose clean progress screens or verbose console output before installation. If guest setup fails, the installer offers a verbose retry, an LXC shell, or leaving the container for debugging. On a rerun, entering an existing Palworld LXC ID offers a resume path that preserves its disk/network and sets nesting before continuing.
 
 The helper creates an unprivileged LXC with nesting enabled, installs Debian dependencies and SteamCMD, downloads Palworld App ID `2394010`, writes the systemd units, and starts the server. It selects the newest available Debian 13 standard template and provides separate storage pickers for the container disk and template, showing storage type and correctly converted free capacity.
 
 At first installation, the completion screen and Proxmox console show the LXC's local IP, game address/UDP port, web panel address, and login details. The default web username is `admin`; the installer generates a unique initial password and prints it at the end. Save it, sign in, and then change it from the **Web login** card. There is no shared hard-coded default password. The panel uses a local self-signed certificate, so your browser will show a certificate warning on first access. Visit `https://<LXC-LAN-IP>:8443` from a device on your LAN. The web service binds to the container's LAN address; do not forward TCP 8443 on your router. A stable DHCP reservation or static LXC address is recommended.
 
 The Proxmox console is set to auto-login as root. This applies to the local Proxmox console only; it does not enable passwordless SSH. `pct enter <CTID>` already opens a root shell without a guest username or password.
+
+For the prior partial install, rerun the updated helper and enter container ID `320` when prompted. Confirm **Resume Palworld setup** to continue in that container. The helper restarts it to apply nesting; saves and the existing LXC disk are retained. If clean mode appears idle, it prints the host log path under `/tmp/palworld-install-<CTID>.log`; inspect it with `tail -f /tmp/palworld-install-320.log` from another Proxmox shell.
 
 Open the in-container menu from the Proxmox host:
 
