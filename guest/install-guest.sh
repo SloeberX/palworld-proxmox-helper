@@ -33,30 +33,33 @@ install -d -o root -g palworld-web -m 0750 /etc/palworld-web /var/lib/palworld-w
 install -d -o palworld-web -g palworld-web -m 0700 /var/lib/palworld-web/imports
 install -d -o root -g palworld-web -m 0750 /opt/palworld/backups
 
-mkdir -p /etc/systemd/system/console-getty.service.d /etc/systemd/system/getty@tty1.service.d
+mkdir -p /etc/systemd/system/console-getty.service.d /etc/systemd/system/getty@.service.d
 cat > /etc/systemd/system/console-getty.service.d/20-palworld-autologin.conf <<'CONSOLE_GETTY'
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear console $TERM
 CONSOLE_GETTY
-cat > /etc/systemd/system/getty@tty1.service.d/20-palworld-autologin.conf <<'TTY_GETTY'
+cat > /etc/systemd/system/getty@.service.d/20-palworld-autologin.conf <<'TTY_GETTY'
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 TTY_GETTY
 systemctl daemon-reload
+systemctl enable getty@tty1.service >/dev/null 2>&1 || true
 cat > /etc/profile.d/palworld-server-banner.sh <<'BANNER'
 if [ "$(id -u)" -eq 0 ] && [ -t 1 ]; then
-    _pw_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    _pw_ip="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | head -n1 || true)"
     _pw_port="$(awk -F= '$1=="GAME_PORT"{print $2}' /etc/palworld-manager/server.env 2>/dev/null)"
     _pw_name="$(hostname)"
-    printf '\n\033[1;36mPalworld Server Manager\033[0m\n'
-    printf '  Hostname:   %s\n' "$_pw_name"
-    printf '  Local IP:   %s\n' "${_pw_ip:-unavailable}"
-    printf '  Game:       %s:%s/udp\n' "${_pw_ip:-unavailable}" "${_pw_port:-8211}"
-    printf '  Web panel:  https://%s:8443\n' "${_pw_ip:-unavailable}"
-    printf '  Login:      admin (initial password is shown during installation)\n\n'
-    unset _pw_ip _pw_port _pw_name
+    _pw_os="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-Debian GNU/Linux}")"
+    printf '\n\033[1;36mPalworld Server LXC\033[0m\n'
+    printf '\033[1;33m  Provided by:  SloeberX | GitHub: https://github.com/SloeberX/palworld-proxmox-helper\033[0m\n'
+    printf '\033[1;32m  OS:           %s\033[0m\n' "$_pw_os"
+    printf '\033[1;32m  Hostname:     %s\033[0m\n' "$_pw_name"
+    printf '\033[1;32m  Local IP:     %s\033[0m\n' "${_pw_ip:-unavailable}"
+    printf '\033[1;32m  Game server:  %s:%s/udp\033[0m\n' "${_pw_ip:-unavailable}" "${_pw_port:-8211}"
+    printf '\033[1;32m  Web manager:  https://%s:8443\033[0m\n\n' "${_pw_ip:-unavailable}"
+    unset _pw_ip _pw_port _pw_name _pw_os
 fi
 BANNER
 chmod 0644 /etc/profile.d/palworld-server-banner.sh

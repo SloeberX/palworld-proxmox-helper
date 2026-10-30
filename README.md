@@ -13,6 +13,7 @@ A small, self-hosted Proxmox VE helper that creates a Debian 13 LXC for a standa
 - Web panel includes a persistent light/dark theme toggle, backup download, and upload/import restore for offsite archives.
 - Helper updater refreshes the management scripts and service definitions from GitHub while preserving the world, settings, backup files, and web login.
 - Root auto-login on the Proxmox LXC console; `pct enter <CTID>` also opens a root shell directly.
+- On each console login, a colored banner shows Debian version, hostname, current LAN IP, Palworld UDP address, and web-manager URL.
 
 The public-IP watcher only reads the current external IPv4 from `api.ipify.org`. It does not configure or update DDNS. Your DDNS client can continue running separately.
 
